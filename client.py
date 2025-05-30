@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import os
 import time
+import hashlib
 from math import gcd
 
 SERVER_URL = "http://localhost:8000"
@@ -13,7 +14,7 @@ async def get_snapshot():
 
 def derive_key_from_snapshot(snapshot, salt: bytes):
     seed = snapshot['seed']
-    tick = snapshot['tick'] ^ int.from_bytes(salt[:4], 'little')  # Salt affects the tick
+    tick = snapshot['tick'] ^ int.from_bytes(salt[:4], 'little')
 
     arr = [[[0 for _ in range(4)] for _ in range(4)] for _ in range(4)]
     value = seed
@@ -37,7 +38,7 @@ def derive_key_from_snapshot(snapshot, salt: bytes):
     return tick_bytes
 
 def encrypt_stream(byte_stream, tick_key, salt):
-    result = bytearray(salt)  # Add salt to the beginning of the encrypted stream
+    result = bytearray(salt)
     for i, b in enumerate(byte_stream):
         t = tick_key[i % 64]
         result.append((b * t) % 256)
@@ -51,47 +52,42 @@ def decrypt_stream(encrypted_stream, tick_key):
         result.append((b * t_inv) % 256)
     return result
 
+def fast_hash(data: bytes, digest_size=16):
+    return hashlib.blake2s(data, digest_size=digest_size).digest()
+
 async def encrypt_message(message: str):
     snapshot = await get_snapshot()
-
     salt = int(time.time()).to_bytes(8, 'little') + os.urandom(8)
     tick_key = derive_key_from_snapshot(snapshot, salt)
 
     input_bytes = bytearray(message.encode('utf-8'))
     encrypted = encrypt_stream(input_bytes, tick_key, salt)
-    return encrypted
+    hashed = fast_hash(encrypted)
+    return hashed + encrypted
 
 async def decrypt_message(encrypted: bytes):
     snapshot = await get_snapshot()
-    salt = encrypted[:16]
+    recv_hash = encrypted[:16]
+    salt = encrypted[16:32]
+    payload = encrypted[32:]
+
     tick_key = derive_key_from_snapshot(snapshot, salt)
-    decrypted = decrypt_stream(encrypted[16:], tick_key)
+    decrypted = decrypt_stream(payload, tick_key)
+
+    actual_hash = fast_hash(encrypted[16:])
+    if recv_hash != actual_hash:
+        raise ValueError("Hash mismatch! Possible tampering or corruption.")
+
     return decrypted.decode('utf-8')
 
-async def tick_refresher(update_interval: int, callback):
-    while True:
-        snapshot = await get_snapshot()
-        await callback(snapshot)
-        await asyncio.sleep(update_interval)
-
 async def main():
-    message = "это пример шифрования с динамическим tick"
+    message = "это пример шифрования с динамическим tick и хэшем"
 
-    # Example of encrypting and decrypting a message
     encrypted = await encrypt_message(message)
     print("Encrypted:", encrypted)
 
     decrypted = await decrypt_message(encrypted)
     print("Decrypted:", decrypted)
-
-    # Example of using tick refresher
-    async def on_tick_update(snapshot):
-        print(f"[Tick обновлен] seed={snapshot['seed']}, tick={snapshot['tick']}")
-
-    # Launch the tick refresher(will stop after 10 seconds)
-    task = asyncio.create_task(tick_refresher(1, on_tick_update))
-    await asyncio.sleep(10)
-    task.cancel()
 
 if __name__ == "__main__":
     asyncio.run(main())
