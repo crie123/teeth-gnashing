@@ -22,11 +22,11 @@ Tick-Based Encryption PoC
 Запуск
 
 Сервер
-
+'''python
 pip install fastapi uvicorn
 
 python server.py
-
+'''
 Клиент
 
 pip install aiohttp
