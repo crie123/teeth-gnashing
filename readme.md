@@ -24,11 +24,13 @@ Tick-Based Encryption PoC
 Сервер
 
 pip install fastapi uvicorn
+
 python server.py
 
 Клиент
 
 pip install aiohttp
+
 python client_async_stream.py
 
 Будущее расширение
