@@ -17,7 +17,7 @@ python server.py
 ```python
 pip install aiohttp
 
-python client_async_stream.py
+python client.py
 ```
 
 
@@ -57,6 +57,7 @@ python client_async_stream.py
 TODO
 
 L2 реализация, инкапсуляция/обфускация/stealth(когда нибудь)
+
 Сквозное решение(возможно)
 
 
