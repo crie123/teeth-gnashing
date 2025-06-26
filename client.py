@@ -3,14 +3,51 @@ import asyncio
 import os
 import time
 import hashlib
+import random
 from math import gcd
+import hmac
+import base64
 
 SERVER_URL = "http://localhost:8000"
+SECRET_KEY = b"super_secret_key_for_hmac"
+MAX_DRIFT = 10  # seconds
+
+def generate_function_points(n=8):
+    return [(random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(0, 1)) for _ in range(n)]
+
+def hash_function_points(points):
+    flat = b"".join([
+        float(x).hex().encode() + float(y).hex().encode() + float(z).hex().encode() + float(v).hex().encode()
+        for x, y, z, v in points
+    ])
+    return hashlib.blake2s(flat, digest_size=16).digest()
+
+async def authenticate_with_function(session):
+    points = generate_function_points()
+    func_hash = hash_function_points(points)
+    payload = {"hash": func_hash.hex()}
+    async with session.post(f"{SERVER_URL}/handshake", json=payload) as resp:
+        if resp.status != 200:
+            raise Exception("Authentication failed")
+        return points  # dots remain only on the client
+    
+
+def verify_snapshot_signature(tick, seed, timestamp, signature):
+    msg = f"{tick}|{seed}|{timestamp}".encode()
+    expected = hmac.new(SECRET_KEY, msg, hashlib.sha256).digest()
+    return base64.b64encode(expected).decode() == signature
 
 async def get_snapshot():
     async with aiohttp.ClientSession() as session:
+        await authenticate_with_function(session)
         async with session.get(f"{SERVER_URL}/snapshot") as response:
-            return await response.json()
+            snap = await response.json()
+            now = int(time.time())
+            if abs(now - snap["timestamp"]) > MAX_DRIFT:
+                raise ValueError("Snapshot expired or too far in future")
+            if not verify_snapshot_signature(snap["tick"], snap["seed"], snap["timestamp"], snap["signature"]):
+                raise ValueError("Invalid snapshot signature")
+            return snap
 
 def derive_key_from_snapshot(snapshot, salt: bytes):
     seed = snapshot['seed']
@@ -81,7 +118,7 @@ async def decrypt_message(encrypted: bytes):
     return decrypted.decode('utf-8')
 
 async def main():
-    message = "это пример шифрования с динамическим tick и хэшем"
+    message = "это пример шифрования с динамическим tick, хэшем и handshake-функцией"
 
     encrypted = await encrypt_message(message)
     print("Encrypted:", encrypted)
