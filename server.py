@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import threading
 import time
@@ -8,16 +8,16 @@ import random
 import hashlib
 import hmac
 import base64
+import json
+from pathlib import Path
+from typing import Optional, Set
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class ServerConfig(BaseModel):
+    secret_key: str = Field(..., description="Base64 encoded secret key for HMAC")
+    tick_interval: float = Field(default=1.0, description="Interval for tick updates in seconds")
+    host: str = Field(default="0.0.0.0", description="Server host")
+    port: int = Field(default=8000, description="Server port")
+    hash_size: int = Field(default=16, description="Size of hash in bytes")
 
 class Snapshot(BaseModel):
     tick: int
@@ -28,40 +28,94 @@ class Snapshot(BaseModel):
 class HandshakeRequest(BaseModel):
     hash: str
 
-state = {
-    "tick": 0,
-    "seed": random.randint(1, 1 << 30),
-    "authenticated_hashes": set()
-}
+class ServerState:
+    def __init__(self):
+        self.tick: int = 0
+        self.seed: int = random.randint(1, 1 << 30)
+        self.authenticated_hashes: Set[str] = set()
+        self._lock = threading.Lock()
 
-SECRET_KEY = b"super_secret_key_for_hmac"
+    def increment_tick(self):
+        with self._lock:
+            self.tick = (self.tick + 1) % (1 << 31)
+
+    def add_hash(self, hash_value: str) -> None:
+        with self._lock:
+            self.authenticated_hashes.add(hash_value)
+
+    def is_hash_authenticated(self, hash_value: str) -> bool:
+        with self._lock:
+            return hash_value in self.authenticated_hashes
+
+app = FastAPI(title="Array-Crypto Server",
+             description="Dynamic snapshot-based encryption server")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+def load_config(config_path: str = "server_config.json") -> ServerConfig:
+    try:
+        if Path(config_path).exists():
+            with open(config_path, 'r') as f:
+                config_data = json.load(f)
+        else:
+            config_data = {
+                "secret_key": base64.b64encode(b"super_secret_key_for_hmac").decode(),
+                "tick_interval": 1.0,
+                "host": "0.0.0.0",
+                "port": 8000,
+                "hash_size": 16
+            }
+            # Save default config
+            with open(config_path, 'w') as f:
+                json.dump(config_data, f, indent=2)
+        
+        return ServerConfig(**config_data)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load config: {str(e)}")
+
+state = ServerState()
+config = load_config()
 
 def update_tick(interval: float = 1.0):
     while True:
-        state["tick"] = (state["tick"] + 1) % (1 << 31)
+        state.increment_tick()
         time.sleep(interval)
 
 def sign_snapshot(tick: int, seed: int, timestamp: int) -> str:
     message = f"{tick}|{seed}|{timestamp}".encode()
-    sig = hmac.new(SECRET_KEY, message, hashlib.sha256).digest()
+    sig = hmac.new(base64.b64decode(config.secret_key), message, hashlib.sha256).digest()
     return base64.b64encode(sig).decode()
 
 @app.post("/handshake")
 async def handshake(req: HandshakeRequest):
     h = req.hash.lower()
     if not h or len(h) != 32:
-        return {"status": "invalid"}
-    state["authenticated_hashes"].add(h)
+        raise HTTPException(status_code=400, detail="Invalid hash format")
+    state.add_hash(h)
     return {"status": "ok"}
 
 @app.get("/snapshot")
 async def get_snapshot(request: Request):
     timestamp = int(time.time())
-    tick = state["tick"]
-    seed = state["seed"]
-    signature = sign_snapshot(tick, seed, timestamp)
-    return Snapshot(tick=tick, seed=seed, timestamp=timestamp, signature=signature)
+    signature = sign_snapshot(state.tick, state.seed, timestamp)
+    return Snapshot(
+        tick=state.tick,
+        seed=state.seed,
+        timestamp=timestamp,
+        signature=signature
+    )
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": int(time.time())}
 
 if __name__ == "__main__":
-    threading.Thread(target=update_tick, daemon=True).start()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    threading.Thread(target=update_tick, args=(config.tick_interval,), daemon=True).start()
+    uvicorn.run(app, host=config.host, port=config.port)
