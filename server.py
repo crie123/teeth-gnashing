@@ -41,7 +41,7 @@ class ServerState:
     def increment_tick(self):
         with self._lock:
             self.tick = (self.tick + 1) % (1 << 31)
-            if self.tick % 100 == 0:  # Периодически обновляем seed для большей энтропии
+            if self.tick % 100 == 0:  # Periodically change seed for added security
                 self.seed = random.randint(1, 1 << 30)
 
     def add_hash(self, hash_value: str) -> None:
@@ -101,12 +101,12 @@ def sign_snapshot(tick: int, seed: int, timestamp: int) -> str:
 @app.post("/handshake")
 async def handshake(req: HandshakeRequest):
     h = req.hash.lower()
-    # Обновляем проверку для 32-байтового хеша (64 символа в hex)
+    # Refreshed check for 32-byte hash (64 hex characters)
     if not h or len(h) != 64:
         raise HTTPException(status_code=400, detail="Invalid hash format")
     
     try:
-        # Проверяем, что это валидный hex
+        # Check if valid hex
         bytes.fromhex(h)
         state.add_hash(h)
         return {"status": "ok"}
