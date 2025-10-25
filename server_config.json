@@ -1,0 +1,7 @@
+{
+  "secret_key": "c3VwZXJfc2VjcmV0X2tleV9mb3JfaG1hYw==",
+  "tick_interval": 1.0,
+  "host": "0.0.0.0",
+  "port": 8000,
+  "hash_size": 16
+}

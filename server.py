@@ -11,13 +11,15 @@ import base64
 import json
 from pathlib import Path
 from typing import Optional, Set
+import secrets
 
 class ServerConfig(BaseModel):
     secret_key: str = Field(..., description="Base64 encoded secret key for HMAC")
     tick_interval: float = Field(default=1.0, description="Interval for tick updates in seconds")
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, description="Server port")
-    hash_size: int = Field(default=16, description="Size of hash in bytes")
+    hash_size: int = Field(default=32, description="Size of hash in bytes")
+    array_size: int = Field(default=256, description="Size of array for key derivation")
 
 class Snapshot(BaseModel):
     tick: int
@@ -29,15 +31,18 @@ class HandshakeRequest(BaseModel):
     hash: str
 
 class ServerState:
-    def __init__(self):
+    def __init__(self, config: ServerConfig):
         self.tick: int = 0
         self.seed: int = random.randint(1, 1 << 30)
         self.authenticated_hashes: Set[str] = set()
         self._lock = threading.Lock()
+        self.config = config
 
     def increment_tick(self):
         with self._lock:
             self.tick = (self.tick + 1) % (1 << 31)
+            if self.tick % 100 == 0:  # Периодически обновляем seed для большей энтропии
+                self.seed = random.randint(1, 1 << 30)
 
     def add_hash(self, hash_value: str) -> None:
         with self._lock:
@@ -69,7 +74,8 @@ def load_config(config_path: str = "server_config.json") -> ServerConfig:
                 "tick_interval": 1.0,
                 "host": "0.0.0.0",
                 "port": 8000,
-                "hash_size": 16
+                "hash_size": 32,
+                "array_size": 256
             }
             # Save default config
             with open(config_path, 'w') as f:
@@ -79,8 +85,8 @@ def load_config(config_path: str = "server_config.json") -> ServerConfig:
     except Exception as e:
         raise RuntimeError(f"Failed to load config: {str(e)}")
 
-state = ServerState()
 config = load_config()
+state = ServerState(config)
 
 def update_tick(interval: float = 1.0):
     while True:
@@ -95,10 +101,17 @@ def sign_snapshot(tick: int, seed: int, timestamp: int) -> str:
 @app.post("/handshake")
 async def handshake(req: HandshakeRequest):
     h = req.hash.lower()
-    if not h or len(h) != 32:
+    # Обновляем проверку для 32-байтового хеша (64 символа в hex)
+    if not h or len(h) != 64:
         raise HTTPException(status_code=400, detail="Invalid hash format")
-    state.add_hash(h)
-    return {"status": "ok"}
+    
+    try:
+        # Проверяем, что это валидный hex
+        bytes.fromhex(h)
+        state.add_hash(h)
+        return {"status": "ok"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid hash hex encoding")
 
 @app.get("/snapshot")
 async def get_snapshot(request: Request):
@@ -114,7 +127,12 @@ async def get_snapshot(request: Request):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "timestamp": int(time.time())}
+    return {
+        "status": "healthy",
+        "timestamp": int(time.time()),
+        "tick": state.tick,
+        "authenticated_clients": len(state.authenticated_hashes)
+    }
 
 if __name__ == "__main__":
     threading.Thread(target=update_tick, args=(config.tick_interval,), daemon=True).start()
