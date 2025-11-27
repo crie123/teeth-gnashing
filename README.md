@@ -61,13 +61,13 @@ For development work, additional tools are included:
 pip install -r requirements.txt
 
 # Run tests with coverage
-pytest --cov=array_crypto tests/
+pytest --cov=teeth-gnashing tests/
 
 # Run code quality checks
 black .
 isort .
-pylint array_crypto
-mypy array_crypto
+pylint teeth-gnashing
+mypy teeth-gnashing
 ```
 
 ## Server Configuration
@@ -99,6 +99,113 @@ Create a `client_config.json` file or pass configuration directly:
 ```
 
 ## Usage
+
+### Quick Start (Out of the Box)
+
+Get started with the encryption protocol in just a few steps:
+
+#### 1. Start the Server
+
+In one terminal window, run:
+
+```bash
+python server.py
+```
+
+The server will automatically:
+- Create `server_config.json` with default settings if it doesn't exist
+- Start listening on `http://0.0.0.0:8000`
+- Initialize the snapshot generation system
+- Output the startup status
+
+#### 2. Use the Client
+
+In another terminal or Python script:
+
+```python
+import asyncio
+from client import CryptoClient, CryptoConfig
+
+async def main():
+    # Use default client configuration
+    config = CryptoConfig(
+        server_url="http://localhost:8000",
+        secret_key=b"super_secret_key_for_hmac",
+        array_size=256,
+        hash_size=32
+    )
+    
+    async with CryptoClient(config) as client:
+        # Authenticate with the server
+        await client.authenticate()
+        print("✓ Authenticated successfully")
+        
+        # Encrypt a message
+        message = "Hello, Secure World!"
+        encrypted = await client.encrypt_message(message.encode())
+        print(f"✓ Encrypted: {encrypted.hex()[:40]}...")
+        
+        # Decrypt the message
+        decrypted = await client.decrypt_message(encrypted)
+        print(f"✓ Decrypted: {decrypted.decode()}")
+
+asyncio.run(main())
+```
+
+#### 3. Run the Crypto Analysis (Optional)
+
+To analyze the security properties of the encryption:
+
+```bash
+python crypto_analysis.py
+```
+
+This will:
+- Collect 1000 encryption samples
+- Analyze entropy and patterns
+- Perform differential analysis
+- Display security metrics
+
+### Complete Example Script
+
+Create `example.py`:
+
+```python
+import asyncio
+from client import CryptoClient, CryptoConfig
+
+async def encrypt_data():
+    config = CryptoConfig(
+        server_url="http://localhost:8000",
+        secret_key=b"super_secret_key_for_hmac"
+    )
+    
+    async with CryptoClient(config) as client:
+        await client.authenticate()
+        
+        # Encrypt multiple messages
+        messages = [
+            b"Message 1: Confidential data",
+            b"Message 2: More secure information",
+            b"Message 3: Binary data test"
+        ]
+        
+        for msg in messages:
+            encrypted = await client.encrypt_message(msg)
+            decrypted = await client.decrypt_message(encrypted)
+            
+            assert decrypted == msg
+            print(f"✓ {msg.decode()} -> Encrypted -> Decrypted successfully")
+
+if __name__ == "__main__":
+    asyncio.run(encrypt_data())
+```
+
+Run it:
+
+```bash
+python example.py
+```
 
 ### Starting the Server
 
