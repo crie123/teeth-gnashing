@@ -43,6 +43,7 @@ credentials.json
 *.pem
 *.key
 crypto_analysis.py
+server_config.json
 
 # IDE и системные файлы
 .vscode/
