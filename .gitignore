@@ -42,6 +42,7 @@ build/
 credentials.json
 *.pem
 *.key
+crypto_analysis.py
 
 # IDE и системные файлы
 .vscode/

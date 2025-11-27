@@ -1,4 +1,4 @@
-# Array-Crypto
+# teeth-gnashing
 
 A production-ready Python library for dynamic snapshot-based encryption using server-client architecture.
 
