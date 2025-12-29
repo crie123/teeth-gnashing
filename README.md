@@ -47,7 +47,20 @@ The library has undergone extensive security testing with the following results:
 
 ## Installation
 
+### From PyPI (Recommended)
+
+```bash
+pip install teeth-gnashing
+```
+
+### From Source
+
 1. Clone the repository
+```bash
+git clone https://github.com/username/teeth-gnashing.git
+cd teeth-gnashing
+```
+
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
@@ -55,19 +68,22 @@ pip install -r requirements.txt
 
 ## Development Setup
 
-For development work, additional tools are included:
+For development work, install with dev dependencies:
 ```bash
-# Install dev dependencies
+pip install -e ".[dev]"
+
+# Or install dev dependencies separately
 pip install -r requirements.txt
+pip install pytest pytest-asyncio pytest-cov black isort mypy pylint
 
 # Run tests with coverage
-pytest --cov=teeth-gnashing tests/
+pytest --cov=teeth_gnashing tests/
 
 # Run code quality checks
 black .
 isort .
-pylint teeth-gnashing
-mypy teeth-gnashing
+pylint teeth_gnashing
+mypy teeth_gnashing
 ```
 
 ## Server Configuration
